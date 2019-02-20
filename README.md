@@ -1,7 +1,7 @@
 # nagent
 nat agent like frp for through your nat.  
 Source code writed by Javascript, run at Nodejs.  
-  
+[\[中文说明书\]](./说明书.md)  
   
 ## deployment
 install nodejs if you havn't that.  
