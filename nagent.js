@@ -2,6 +2,7 @@
 /*
  * fett 2019-2
 */
+var local_host="127.0.0.1"
 var local_port=0
 var server_port=5670
 var server_host='localhost'
@@ -89,7 +90,7 @@ var handling_data=(sock,data)=>{
 			sock.buffer=Buffer.concat([sock.buffer,data])
 			return
 		}
-		partner = net.connect(local_port, "127.0.0.1")
+		partner = net.connect(local_port, local_host)
 		conn_count--
 		partner.on("connect", e=>{
 			log("partner connect is done. port is", local_port)
