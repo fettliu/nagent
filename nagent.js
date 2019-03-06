@@ -2,8 +2,8 @@
 /*
  * fett 2019-2
 */
-var local_host="127.0.0.1"
 var local_port=0
+var local_host='localhost'
 var server_port=5670
 var server_host='localhost'
 var remote_port=0
@@ -141,7 +141,7 @@ var disconnect=(server,s)=>{
 	}else if(s.partner){
 		s.partner.destroy()
 	}
-	
+	log("disconnect local port is:",server.localPort)
 	if(server.conns.size+server.clients.length==0){
 		log("server was stop port is ", server.localPort)
 		server.close()
@@ -152,10 +152,10 @@ var disconnect=(server,s)=>{
 
 // open port
 var open_port=(port,c)=>{
-	c.on("end", e=>{disconnect(server,c)})
 	c.on("error", e=>{log(e.errno, c.remotePort)})
 	if(ports[port]){
 		s=ports[port]
+		c.on("end", e=>{disconnect(s,c)})
 		s.clients.push(c)
 		if(s.done)c.write("ok\r")
 		return
@@ -167,6 +167,7 @@ var open_port=(port,c)=>{
 	server.clients=[c]
 	server.conns=new Set()// store used connection
 	server.listen(port)
+	c.on("end", e=>{disconnect(server,c)})
 	server.on("connection", s=>{
 		console.log("new connection at", s.remoteAddress+":"+s.remotePort+">>:"+s.localPort)
 		if(server.clients.length==0){
@@ -187,7 +188,7 @@ var open_port=(port,c)=>{
 		s.on("error", e=>{disconnect(server,s)})
 	})
 	server.on("error", e=>{
-		console.log(e.errno)
+		log(e.errno)
 		for(var cli of server.clients){
 			cli.write("failed "+e.errno+"\r")
 			cli.end()
@@ -195,7 +196,7 @@ var open_port=(port,c)=>{
 		ports[port]=undefined
 	})
 	server.on("listening", e=>{
-		console.log("listen successful.",port)
+		log("listen successful.",port)
 		server.done=true
 		for(var cli of server.clients){
 			log("notify ok!", cli.remoteAddress, cli.remotePort)
@@ -211,8 +212,10 @@ var client_connect=c=>{
 			segs=s.slice(0,-1).split(" ")
 			if(segs.length!=4 || segs[0]!="NAGENT1.0"){
 				log("login failed",s)
+				try{
 				c.write("failed\r")
 				c.end()
+				}catch(e){}
 				return
 			}
 		}catch(e){
@@ -225,6 +228,7 @@ var client_connect=c=>{
 		c.removeAllListeners()
 		open_port(parseInt(segs[3]), c)
 	})
+	c.on("error",e=>{c.end()})
 	log("new client at", c.remoteAddress, c.remotePort)
 }
 
