@@ -108,7 +108,7 @@ var handling_data=(sock,data)=>{
 }
 
 // open service
-var open_conn=port=>{
+var open_conn=()=>{
 	if(conn_count>=keep_conn_count)return
 	var temp=net.connect(server_port, server_host)
 	conn_count+=1
@@ -117,6 +117,13 @@ var open_conn=port=>{
 		temp.write("NAGENT1.0 guest nopwd "+remote_port+"\r")// protocal,username,password(can't include space char),open port
 		temp.once("data", d=>{handling_login(temp,d)})
 		if(conn_count<keep_conn_count)open_conn()
+	})
+	temp.setTimeout(600000*30, e=>{//half hour
+		conn_count--
+		log("timeout")
+		if(temp.partner)temp.partner.end()
+		temp.end()
+		open_conn()
 	})
 	temp.on("error", e=>{conn_count--;log(e.errno);setTimeout(open_conn, 1000)})
 	temp.on("end", e=>{
