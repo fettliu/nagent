@@ -7,10 +7,12 @@ Source code writed by Javascript, run at Nodejs.
 install nodejs if you havn't that.  
   
 ## run as server
-windows/linux:  
+### windows/linux:  
 node nagent.js -s  
-linux:  
+### linux:  
 ./nagent.js -s  
+### watch state:   
+watch cat nagent-state   
   
 ## run as client
 windows/linux:  
