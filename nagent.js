@@ -1,5 +1,19 @@
 #!/usr/bin/node
 /*
+                     ``                           
+                     `.`.`                        
+                      .yys                        
+                       -:-``      ./:             
+           .`.:  `      /++/.  ..``.`             
+           ` -/`-//     ://:` -///`               
+                `-.`-::` -/++/---.                
+                   `-::.oyyyyyy+ .::.`+/          
+                       .yyyyyyyy`://: -.          
+               ``  -::` +yyyyyy/  ``              
+           `.  os` -/:` `-///:-os+                
+            `  ``       :/:`  `+o/`               
+                       ...`       .`              
+                       ``                   
  * fett 2019-2
 */
 var local_port=0
@@ -12,7 +26,13 @@ var conn_count=0
 var runas_server=false
 var net=require("net")
 
-var log=function(){console.log("["+new Date().toLocaleString()+"]"+Array.prototype.join.call(arguments," "))}
+
+var log=function(){
+	console.log("["+new Date().toLocaleString()+"]"+Array.prototype.join.call(arguments," "))
+}
+var log2=function(){
+	console.log("["+new Date().toLocaleString()+"]"+Array.prototype.join.call(arguments," "))
+}
 var debug=e=>{}//log
 var show=bf=>{return "["+bf.length+"]"+bf.toString()}
 
@@ -108,7 +128,7 @@ var handling_data=(sock,data)=>{
 }
 
 // open service
-var open_conn=()=>{
+var open_conn=port=>{
 	if(conn_count>=keep_conn_count)return
 	var temp=net.connect(server_port, server_host)
 	conn_count+=1
@@ -118,7 +138,7 @@ var open_conn=()=>{
 		temp.once("data", d=>{handling_login(temp,d)})
 		if(conn_count<keep_conn_count)open_conn()
 	})
-	temp.setTimeout(600000*30, e=>{//half hour
+	temp.setTimeout(60000*30, e=>{//half hour
 		conn_count--
 		log("timeout")
 		if(temp.partner)temp.partner.end()
@@ -139,6 +159,25 @@ open_conn()
 }else{// server chunk
 var ports={}// port=>server(clients)
 var debug=e=>{}//console.warn
+fs=require("fs")
+fd=fs.openSync("nagent-state", "w+")
+var state=function(){
+	let content=""
+	for(let k in ports){
+		let v = ports[k]
+		let now = Date.now()
+		if(v){
+			let c2u=v.c2u_last,u2c=v.u2c_last
+			let s1='▁▂▃▄▅▆▇█'[c2u>10240?7:c2u>8778?6:c2u>7316?5:c2u>5854?4:c2u>4392?3:c2u>2930?2:c2u>1468?1:0]
+			let s2='▁▂▃▄▅▆▇█'[u2c>10240?7:u2c>8778?6:u2c>7316?5:u2c>5854?4:u2c>4392?3:u2c>2930?2:u2c>1468?1:0]
+			content+=k+"\t client:"+v.clients.length+" connections:"+v.conns.size+" "+s1+s2+"\n"
+			v.c2u_last=0
+			v.u2c_last=0
+		}
+	}
+	fs.writeSync(fd, content, 0)
+}
+setInterval(state, 1000)
 
 // connection was closed
 var disconnect=(server,s)=>{
@@ -148,35 +187,45 @@ var disconnect=(server,s)=>{
 	}else if(s.partner){
 		s.partner.destroy()
 	}
-	log("disconnect local port is:",server.localPort)
-	if(server.conns.size+server.clients.length==0){
-		log("server was stop port is ", server.localPort)
-		server.close()
-		ports[server.localPort]=undefined
+	if(server){
+		var ix = server.clients.indexOf(s)
+		if(ix!=-1)server.clients.splice(ix,1)
+		var port = server.address().port
+		console.log("disconnect local port is:", port)
+		if(server.conns.size+server.clients.length==0){
+			log("server was stop port is ", port)
+			server.close()
+			fs.truncateSync("nagent-state")
+			delete ports[port]
+		}
 	}
 	log(s.remotePort+" was closed")
 }
 
 // open port
 var open_port=(port,c)=>{
-	c.on("error", e=>{log(e.errno, c.remotePort)})
+	c.on("error", e=>{disconnect(s,c)})
 	if(ports[port]){
 		s=ports[port]
 		c.on("end", e=>{disconnect(s,c)})
+		c.setTimeout(60000*10, e=>{disconnect(s,c)})
 		s.clients.push(c)
 		if(s.done)c.write("ok\r")
 		return
 	}
-	log("open port...",port)
+	console.log("open port...",port)
 	var server=net.createServer()
 	ports[port]=server
 	server.done=false
 	server.clients=[c]
 	server.conns=new Set()// store used connection
 	server.listen(port)
+	server.c2u_last=0
+	server.u2c_last=0
 	c.on("end", e=>{disconnect(server,c)})
+	c.setTimeout(60000*10, e=>{disconnect(server,c)})
 	server.on("connection", s=>{
-		console.log("new connection at", s.remoteAddress+":"+s.remotePort+">>:"+s.localPort)
+		console.log("new user at", s.remoteAddress+":"+s.remotePort+">>:"+s.localPort)
 		if(server.clients.length==0){
 			log(port+"'s client is null")
 			s.end()
@@ -187,12 +236,13 @@ var open_port=(port,c)=>{
 		server.conns.add(s.client)
 		log("alloc",s.client.remoteAddress+":"+s.client.remotePort)
 		s.client.on("data", d=>{
-			debug(">>u",d.toString("hex"))
+			server.c2u_last+=d.length
 			try{s.write(d)}catch(e){}
 		})
-		s.on("data", d=>{debug(">>c",d.toString("hex"));s.client.write(d)})
+		s.on("data", d=>{s.client.write(d);server.u2c_last+=d.length})
 		s.on("end", e=>{disconnect(server,s)})
 		s.on("error", e=>{disconnect(server,s)})
+		s.setTimeout(60000*30/*half hour*/, e=>{disconnect(server,s)})
 	})
 	server.on("error", e=>{
 		log(e.errno)
@@ -236,6 +286,7 @@ var client_connect=c=>{
 		open_port(parseInt(segs[3]), c)
 	})
 	c.on("error",e=>{c.end()})
+	c.setTimeout(60000, e=>{c.end()})
 	log("new client at", c.remoteAddress, c.remotePort)
 }
 
