@@ -180,21 +180,21 @@ var state=function(){
 setInterval(state, 1000)
 
 // connection was closed
-var disconnect=(server,s)=>{
+var disconnect=(s)=>{
 	if(s.client){
-		server.conns.delete(s.client)
+		if(s.server)server.conns.delete(s.client)
 		s.client.destroy()
 	}else if(s.partner){
 		s.partner.destroy()
 	}
-	if(server){
-		var ix = server.clients.indexOf(s)
-		if(ix!=-1)server.clients.splice(ix,1)
-		var port = server.port
+	if(s.server){
+		var ix = s.server.clients.indexOf(s)
+		if(ix!=-1)s.server.clients.splice(ix,1)
+		var port = s.server.port
 		console.log("disconnect local port is:", port)
-		if(server.conns.size+server.clients.length==0){
+		if(s.server.conns.size+s.server.clients.length==0){
 			log("server was stop port is ", port)
-			server.close()
+			s.server.close()
 			fs.truncateSync("nagent-state")
 			delete ports[port]
 		}
@@ -204,13 +204,18 @@ var disconnect=(server,s)=>{
 
 // open port
 var open_port=(port,c)=>{
-	c.on("error", e=>{disconnect(s,c)})
+	c.on("error", e=>{disconnect(c)})
 	if(ports[port]){
-		s=ports[port]
-		c.on("end", e=>{disconnect(s,c)})
-		c.setTimeout(60000*10, e=>{disconnect(s,c)})
-		s.clients.push(c)
-		if(s.done)c.write("ok\r")
+    server=ports[port]
+    if(server.clients.length>=50){
+      c.end()
+      return
+    }
+    c.server=server
+		c.on("end", e=>{disconnect(c)})
+		c.setTimeout(60000*10, e=>{c.end();disconnect(c)})
+		server.clients.push(c)
+		if(server.done)c.write("ok\r")
 		return
 	}
 	console.log("open port...",port)
@@ -222,9 +227,10 @@ var open_port=(port,c)=>{
 	server.conns=new Set()// store used connection
 	server.listen(port)
 	server.c2u_last=0
-	server.u2c_last=0
-	c.on("end", e=>{disconnect(server,c)})
-	c.setTimeout(60000*10, e=>{disconnect(server,c)})
+  server.u2c_last=0
+  c.server=server
+	c.on("end", e=>{disconnect(c)})
+	c.setTimeout(60000*10, e=>{c.end();disconnect(c)})
 	server.on("connection", s=>{
 		console.log("new user at", s.remoteAddress+":"+s.remotePort+">>:"+s.localPort)
 		if(server.clients.length==0){
@@ -233,7 +239,8 @@ var open_port=(port,c)=>{
 			return
 		}
 		s.client = server.clients.pop()
-		s.client.partner = s
+    s.client.partner = s
+    s.server=server
 		server.conns.add(s.client)
 		log("alloc",s.client.remoteAddress+":"+s.client.remotePort)
 		s.client.on("data", d=>{
@@ -241,9 +248,9 @@ var open_port=(port,c)=>{
 			try{s.write(d)}catch(e){}
 		})
 		s.on("data", d=>{s.client.write(d);server.u2c_last+=d.length})
-		s.on("end", e=>{disconnect(server,s)})
-		s.on("error", e=>{disconnect(server,s)})
-		s.setTimeout(60000*30/*half hour*/, e=>{disconnect(server,s)})
+		s.on("end", e=>{disconnect(s)})
+		s.on("error", e=>{disconnect(s)})
+		s.setTimeout(60000*30/*half hour*/, e=>{s.end();disconnect(s)})
 	})
 	server.on("error", e=>{
 		log(e.errno)
@@ -251,14 +258,15 @@ var open_port=(port,c)=>{
 			cli.write("failed "+e.errno+"\r")
 			cli.end()
 		}
-		ports[port]=undefined
+		delete ports[port]
 	})
 	server.on("listening", e=>{
 		log("listen successful.",port)
 		server.done=true
 		for(var cli of server.clients){
 			log("notify ok!", cli.remoteAddress, cli.remotePort)
-			cli.write("ok\r")
+      cli.write("ok\r")
+      cli.server=server
 		}
 	})
 }
