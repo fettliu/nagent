@@ -190,7 +190,7 @@ var disconnect=(server,s)=>{
 	if(server){
 		var ix = server.clients.indexOf(s)
 		if(ix!=-1)server.clients.splice(ix,1)
-		var port = server.address().port
+		var port = server.port
 		console.log("disconnect local port is:", port)
 		if(server.conns.size+server.clients.length==0){
 			log("server was stop port is ", port)
@@ -216,7 +216,8 @@ var open_port=(port,c)=>{
 	console.log("open port...",port)
 	var server=net.createServer()
 	ports[port]=server
-	server.done=false
+  server.done=false
+  server.port=port
 	server.clients=[c]
 	server.conns=new Set()// store used connection
 	server.listen(port)
