@@ -22,7 +22,6 @@ var server_port=5670
 var server_host='localhost'
 var remote_port=0
 var keep_conn_count=10
-var conn_count=0
 var runas_server=false
 var client_timeout=60000*10
 var service_timeout=60000*10
@@ -91,6 +90,16 @@ if(local_port==0||remote_port==0){
 log("server open port:", remote_port)
 log("local service port:", local_port)
 
+var conns = new Set()
+
+function onclose(s,reason){
+	log(reason)
+	if(s.partner)s.partner.destroy()
+	s.destroy()
+	if(conns.has(s))conns.delete(s)
+	if(conns.size>=keep_conn_count)return
+	setTimeout(open_conn, 1000)
+}
 
 // handling data
 var handling_data=(sock,data)=>{
@@ -102,7 +111,8 @@ var handling_data=(sock,data)=>{
 			return
 		}
 		partner = net.connect(local_port, local_host)
-		conn_count--
+		conns.delete(sock)
+		setTimeout(open_conn, 0)
 		partner.on("connect", e=>{
 			log("partner connect is done. port is", local_port)
 			debug("s>>", show(sock.buffer))
@@ -123,40 +133,26 @@ var handling_login=(sock,data)=>{
 	if(data.toString()=="ok\r"){
 		log("login is done.", sock.remoteAddress+":"+sock.remotePort)
 		sock.on("data", d=>{handling_data(sock,d)})
+		conns.add(sock)
 	}else{
 		log("login is failed.", sock.remoteAddress+":"+sock.remotePort, data.toString())
-		sock.destroy()
+		onclose(sock,"login failed")
 	}
 }
 
 // open service
 var open_conn=()=>{
-	if(conn_count>=keep_conn_count)return
 	var temp=net.connect(server_port, server_host)
-	conn_count+=1
-	log("connection count is", conn_count)
+	log("connection count is", conns.size)
 	temp.on("connect", e=>{
 		log(temp.remoteAddress, temp.localPort, "connected!")
 		temp.write("NAGENT1.0 guest nopwd "+remote_port+"\r")// protocal,username,password(can't include space char),open port
 		temp.once("data", d=>{handling_login(temp,d)})
-		if(conn_count<keep_conn_count)open_conn()
+		if(conns.size<keep_conn_count)open_conn()
 	})
-	temp.setTimeout(client_timeout+parseInt((Math.random())*1000), e=>{//half hour
-		conn_count--
-		log("timeout")
-		if(temp.partner)temp.partner.destroy()
-		temp.destroy()
-		open_conn()
-	})
-	temp.on("error", e=>{
-		conn_count--;log(e.errno);setTimeout(open_conn, 1000)
-	})
-	temp.on("end", e=>{
-		conn_count--
-		log("connection is closed", temp.remotePort, "connnection count:", conn_count)
-		if(temp.partner)temp.partner.destroy()
-		setTimeout(open_conn, 1000)
-	})
+	temp.setTimeout(client_timeout+parseInt((Math.random())*1000), e=>{onclose(temp,"timeout")})
+	temp.on("error", e=>{onclose(temp,"error")})
+	temp.on("end", e=>{onclose(temp,"end")})
 }
 
 open_conn()
